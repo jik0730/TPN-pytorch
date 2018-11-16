@@ -1,0 +1,10 @@
+__pycache__*
+data/*
+data
+.vscode*
+*.pyc
+
+experiments/*
+!experiments/base_model
+experiments/base_model/*
+!experiments/base_model/params.json
