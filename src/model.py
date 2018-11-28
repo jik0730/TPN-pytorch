@@ -8,7 +8,7 @@ N_NILTERS_R = 1  # number of filters used in last conv_block in relation module
 K_SIZE = 3  # size of kernel
 MP_SIZE = 2  # size of max pooling
 # NOTE H_DIM should be small with ImageNet.. why??
-H_DIM = 2  # size of hidden layer of fc_layer used in relation module
+H_DIM = 8  # size of hidden layer of fc_layer used in relation module
 EPS = 1e-8  # epsilon for numerical stability
 TOP_K = 20  # k value for top-k extraction from W
 
@@ -166,8 +166,8 @@ class embedding_module(nn.Module):
     def forward(self, X):
         """
         Returns:
-            [1, 64, 1, 1] for Omniglot (28x28)
-            [1, 64, 5, 5] for miniImageNet (84x84)
+            [N, 64, 1, 1] for Omniglot (28x28)
+            [N, 64, 5, 5] for miniImageNet (84x84)
         """
         return self.embed_mod(X)
 
@@ -196,8 +196,9 @@ class relation_module(nn.Module):
         # elif dataset == 'ImageNet':
         #     pad = 1
         self.rel_mod = nn.Sequential(
-            conv_block(N_FILTERS, padding=2, pooling=True),  # NOTE
-            conv_block(N_FILTERS, N_NILTERS_R, padding=2, pooling=True))
+            conv_block(N_FILTERS, padding=1, pooling=True, pool_pad=1),  # NOTE
+            conv_block(
+                N_FILTERS, N_NILTERS_R, padding=1, pooling=True, pool_pad=1))
         self.fc1 = nn.Linear(in_features_fc, H_DIM)
         self.fc2 = nn.Linear(H_DIM, 1)
 
@@ -212,12 +213,16 @@ class relation_module(nn.Module):
         out = self.rel_mod(X)
         out = out.view(out.size(0), -1)
         out = self.fc1(out)
-        # out = F.relu(out)
+        out = F.relu(out)
         out = self.fc2(out)
         return out
 
 
-def conv_block(in_channels, out_channels=N_FILTERS, padding=0, pooling=True):
+def conv_block(in_channels,
+               out_channels=N_FILTERS,
+               padding=0,
+               pooling=True,
+               pool_pad=0):
     """
     The unit architecture (Convolutional Block; CB) used in the modules.
     The CB consists of following modules in the order:
@@ -230,7 +235,7 @@ def conv_block(in_channels, out_channels=N_FILTERS, padding=0, pooling=True):
         conv = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, K_SIZE, padding=padding),
             nn.BatchNorm2d(out_channels, momentum=1, affine=True), nn.ReLU(),
-            nn.MaxPool2d(MP_SIZE))
+            nn.MaxPool2d(MP_SIZE, padding=pool_pad))
     else:
         conv = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, K_SIZE, padding=padding),
