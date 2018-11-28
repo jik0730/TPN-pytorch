@@ -7,7 +7,7 @@ N_FILTERS = 64  # number of filters used in conv_block
 N_NILTERS_R = 1  # number of filters used in last conv_block in relation module
 K_SIZE = 3  # size of kernel
 MP_SIZE = 2  # size of max pooling
-# NOTE H_DIM should be small with ImageNet.. why??
+# NOTE H_DIM should be small with ImageNet.. why?? MAYBE FIXED??
 H_DIM = 8  # size of hidden layer of fc_layer used in relation module
 EPS = 1e-8  # epsilon for numerical stability
 TOP_K = 20  # k value for top-k extraction from W

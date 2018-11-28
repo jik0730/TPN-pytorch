@@ -1,9 +1,33 @@
 # Base code is from https://github.com/cs230-stanford/cs230-code-examples
 import logging
+import os
+import argparse
 
+import torch
+import torch.nn as nn
 import numpy as np
-from torch.autograd import Variable
+import utils
+from src.model import TPN
+from src.model import metrics
+from src.data_loader import split_omniglot_characters
+from src.data_loader import load_imagenet_images
+from src.data_loader import OmniglotTask
+from src.data_loader import ImageNetTask
 from src.data_loader import fetch_dataloaders
+
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    '--data_dir',
+    default='data/Omniglot',
+    help="Directory containing the dataset")
+parser.add_argument(
+    '--model_dir',
+    default='experiments/base_model',
+    help="Directory containing params.json")
+parser.add_argument(
+    '--restore_file',
+    default='best',
+    help="name of the file in --model_dir containing weights to load")
 
 
 def evaluate(model, loss_fn, meta_classes, task_type, metrics, params, split):
@@ -19,7 +43,8 @@ def evaluate(model, loss_fn, meta_classes, task_type, metrics, params, split):
                  the output and labels of each batch
         params: (Params) hyperparameters
         split: (string) 'train' if evaluate on 'meta-training' and 
-                        'test' if evaluate on 'meta-testing' TODO 'meta-validating'
+                        'val' if evaluate on 'meta-validating' and
+                        'test' if evaluate on 'meta-testing'
     """
     # params information
     SEED = params.SEED
@@ -44,10 +69,6 @@ def evaluate(model, loss_fn, meta_classes, task_type, metrics, params, split):
         dl_que = dataloaders['test']
         X_sup, Y_sup = dl_sup.__iter__().next()
         X_que, Y_que = dl_que.__iter__().next()
-
-        # convert to torch Variables TODO do we need this?
-        X_sup, Y_sup = Variable(X_sup), Variable(Y_sup)
-        X_que, Y_que = Variable(X_que), Variable(Y_que)
 
         # move to GPU if available
         if params.cuda:
@@ -82,5 +103,57 @@ def evaluate(model, loss_fn, meta_classes, task_type, metrics, params, split):
 
 
 if __name__ == '__main__':
-    # TODO Evaluate trained model.
-    pass
+    """
+        Evaluate the trained model on the test set.
+    """
+    # Load the parameters
+    args = parser.parse_args()
+    json_path = os.path.join(args.model_dir, 'params.json')
+    assert os.path.isfile(
+        json_path), "No json configuration file found at {}".format(json_path)
+    params = utils.Params(json_path)
+
+    SEED = params.SEED
+
+    # use GPU if available
+    params.cuda = torch.cuda.is_available()  # use GPU is available
+
+    # Set the random seed for reproducible experiments
+    torch.manual_seed(SEED)
+    if params.cuda: torch.cuda.manual_seed(SEED)
+
+    # Split meta-training and meta-testing characters
+    if 'Omniglot' in args.data_dir and params.dataset == 'Omniglot':
+        params.in_channels = 1
+        params.in_features_fc = 1
+        (meta_train_classes, meta_val_classes,
+         meta_test_classes) = split_omniglot_characters(args.data_dir, SEED)
+        task_type = OmniglotTask
+    elif ('miniImageNet' in args.data_dir or
+          'tieredImageNet' in args.data_dir) and params.dataset == 'ImageNet':
+        params.in_channels = 3
+        params.in_features_fc = 4
+        (meta_train_classes, meta_val_classes,
+         meta_test_classes) = load_imagenet_images(args.data_dir)
+        task_type = ImageNetTask
+    else:
+        raise ValueError("I don't know your dataset")
+
+    # Define the model and optimizer
+    if params.cuda:
+        model = TPN(params).cuda()
+    else:
+        model = TPN(params)
+
+    # fetch loss function and metrics
+    loss_fn = nn.NLLLoss()
+    model_metrics = metrics
+
+    # Reload weights from the saved file
+    utils.load_checkpoint(
+        os.path.join(args.model_dir, args.restore_file + '.pth.tar'), model)
+
+    # Evaluate
+    test_metrics = evaluate(model, loss_fn, meta_test_classes, task_type,
+                            metrics, params, 'test')
+    print(test_metrics)
