@@ -59,19 +59,18 @@ def train_single_task(model, optimizer, loss_fn, dataloaders, metrics, params):
     dl_que = dataloaders['test']
     X_sup, Y_sup = dl_sup.__iter__().next()
     X_que, Y_que = dl_que.__iter__().next()
-
-    # convert to torch Variables TODO do we need this? maybe net
-    # X_sup, Y_sup = Variable(X_sup), Variable(Y_sup)
-    # X_que, Y_que = Variable(X_que), Variable(Y_que)
+    Y_union = torch.cat([Y_sup, Y_que], dim=0)
 
     # move to GPU if available
     if params.cuda:
         X_sup, Y_sup = X_sup.cuda(async=True), Y_sup.cuda(async=True)
         X_que, Y_que = X_que.cuda(async=True), Y_que.cuda(async=True)
+        Y_union = Y_union.cuda(async=True)
 
     # compute model output and loss
-    Y_que_hat = model(X_sup, Y_sup, X_que)
-    loss = loss_fn(Y_que_hat, Y_que)
+    # NOTE the loss is computed with union of support set and query set
+    Y_union_hat = model(X_sup, Y_sup, X_que, is_training=True)
+    loss = loss_fn(Y_union_hat, Y_union)
 
     # clear previous gradients, compute gradients of all variables wrt loss
     optimizer.zero_grad()
@@ -93,6 +92,7 @@ def train_and_evaluate(model,
                        meta_test_classes,
                        task_type,
                        optimizer,
+                       scheduler,
                        loss_fn,
                        metrics,
                        params,
@@ -108,6 +108,7 @@ def train_and_evaluate(model,
         meta_test_classes: (list) the classes for meta-testing
         task_type: (subclass of FewShotTask) a type for generating tasks
         optimizer: (torch.optim) optimizer for parameters of model
+        scheduler: (torch.optim.lr_scheduler) scheduler for decaying learning rate
         loss_fn: a loss function
         metrics: (dict) a dictionary of functions that compute a metric using 
                  the output and labels of each batch
@@ -146,6 +147,7 @@ def train_and_evaluate(model,
             # Run one episode
             logging.info("Episode {}/{}".format(episode + 1,
                                                 params.num_episodes))
+            scheduler.step()
 
             # Train a model on a single task (episode).
             # TODO meta-batch of tasks
@@ -157,8 +159,7 @@ def train_and_evaluate(model,
                                   metrics, params)
             # print(episode, _)
 
-            # TODO Evaluate for validation
-            # Evaluate on train and test dataset given a number of tasks (params.num_steps)
+            # Evaluate on train, val, test dataset given a number of tasks (params.num_steps)
             if (episode + 1) % params.save_summary_steps == 0:
                 train_metrics = evaluate(model, loss_fn, meta_train_classes,
                                          task_type, metrics, params, 'train')
@@ -243,6 +244,7 @@ if __name__ == '__main__':
     alpha = params.alpha
     lr = params.learning_rate
     num_episodes = params.num_episodes
+    lr_step_size = params.lr_step_size
 
     # Use GPU if available
     params.cuda = torch.cuda.is_available()
@@ -278,6 +280,9 @@ if __name__ == '__main__':
     else:
         model = TPN(params)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    # introduce optim scheduler to reduce vibration of loss curve down
+    scheduler = torch.optim.lr_scheduler.StepLR(
+        optimizer, lr_step_size, gamma=0.5)
 
     # fetch loss function and metrics
     loss_fn = nn.NLLLoss()
@@ -286,6 +291,6 @@ if __name__ == '__main__':
     # Train the model
     logging.info("Starting training for {} episode(s)".format(num_episodes))
     train_and_evaluate(model, meta_train_classes, meta_val_classes,
-                       meta_test_classes, task_type, optimizer, loss_fn,
-                       model_metrics, params, args.model_dir,
+                       meta_test_classes, task_type, optimizer, scheduler,
+                       loss_fn, model_metrics, params, args.model_dir,
                        args.restore_file)

@@ -46,7 +46,7 @@ class TPN(nn.Module):
         # Define graph construction networks.
         self.rel_mod = relation_module(self.in_features_fc)
 
-    def forward(self, X_sup, Y_sup, X_que):
+    def forward(self, X_sup, Y_sup, X_que, is_training=False):
         # Pass X_sup and X_que through feature embedding networks to be f(X_sup) and f(X_que).
         f_X_sup = self.embed_mod(X_sup)
         f_X_que = self.embed_mod(X_que)
@@ -59,7 +59,11 @@ class TPN(nn.Module):
         F_star = self.label_prop(f_X_sup, f_X_que, g_f_X_sup, g_f_X_que, Y_sup)
 
         # Output predicted scores (labels) of X_que.
-        return F_star[-X_que.size(0):, :]
+        # NOTE Refer to the review in openreview about reproduction.
+        if is_training:
+            return F_star
+        else:
+            return F_star[-X_que.size(0):, :]
 
     def label_prop(self, f_X_sup, f_X_que, g_f_X_sup, g_f_X_que, Y_sup):
         # Y_sup to one-hot format
@@ -98,7 +102,7 @@ class TPN(nn.Module):
         dist = torch.mean((W1 - W2)**2, dim=2)
 
         W = torch.exp(-dist / 2.)
-        W = self.top_k(W)
+        W = self.top_k(W)  # NOTE why we use top-k NN graph ???
 
         assert (W.size(0) == (W_sup.size(0) + W_que.size(0)))
 

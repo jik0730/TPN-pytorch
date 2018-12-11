@@ -6,8 +6,9 @@
     "num_episodes": 100000,
     "num_classes": 5,
     "num_samples": 1,
-    "num_query": 10,
+    "num_query": 15,
     "num_steps": 100,
+    "lr_step_size": 25000,
     "save_summary_steps": 100,
     "num_workers": 1
 }
